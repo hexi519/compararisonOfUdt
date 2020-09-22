@@ -44,12 +44,12 @@ written by
 
 #include "udt.h"
 #include "common.h"
-
-
+#include <iostream>
+using namespace std;
 class CSndLossList
 {
 public:
-   CSndLossList(int size = 1024);
+   CSndLossList(const int& size = 500000);
    ~CSndLossList();
 
       // Functionality:
@@ -60,7 +60,7 @@ public:
       // Returned value:
       //    number of packets that are not in the list previously.
 
-   int insert(int32_t seqno1, int32_t seqno2);
+   int insert(const int32_t& seqno1, const int32_t& seqno2);
 
       // Functionality:
       //    Remove ALL the seq. no. that are not greater than the parameter.
@@ -69,7 +69,7 @@ public:
       // Returned value:
       //    None.
 
-   void remove(int32_t seqno);
+   void remove(const int32_t& seqno);
 
       // Functionality:
       //    Read the loss length.
@@ -89,7 +89,7 @@ public:
 
    int32_t getLostSeq();
 
-private:
+public:
    int32_t* m_piData1;                  // sequence number starts
    int32_t* m_piData2;                  // seqnence number ends
    int* m_piNext;                       // next node in the list
@@ -111,7 +111,7 @@ private:
 class CRcvLossList
 {
 public:
-   CRcvLossList(int size = 1024);
+   CRcvLossList(const int& size = 500000);
    ~CRcvLossList();
 
       // Functionality:
@@ -122,7 +122,7 @@ public:
       // Returned value:
       //    None.
 
-   void insert(int32_t seqno1, int32_t seqno2);
+   void insert(const int32_t& seqno1, const int32_t& seqno2);
 
       // Functionality:
       //    Remove a loss seq. no. from the receiver's loss list.
@@ -131,7 +131,7 @@ public:
       // Returned value:
       //    if the packet is removed (true) or no such lost packet is found (false).
 
-   bool remove(int32_t seqno);
+   int  remove(const int32_t& seqno);
 
       // Functionality:
       //    Remove all packets between seqno1 and seqno2.
@@ -141,7 +141,7 @@ public:
       // Returned value:
       //    if the packet is removed (true) or no such lost packet is found (false).
 
-   bool remove(int32_t seqno1, int32_t seqno2);
+   int remove(const int32_t& seqno1, const int32_t& seqno2);
 
       // Functionality:
       //    Find if there is any lost packets whose sequence number falling seqno1 and seqno2.
@@ -151,7 +151,7 @@ public:
       // Returned value:
       //    True if found; otherwise false.
 
-   bool find(int32_t seqno1, int32_t seqno2) const;
+   bool find(const int32_t& seqno1, const int32_t& seqno2) const;
 
       // Functionality:
       //    Read the loss length.
@@ -180,9 +180,9 @@ public:
       // Returned value:
       //    None.
 
-   void getLossArray(int32_t* array, int& len, int limit);
+   void getLossArray(int32_t* array, int& len, int limit, int & offset);
 
-private:
+public:
    int32_t* m_piData1;                  // sequence number starts
    int32_t* m_piData2;                  // sequence number ends
    int* m_piNext;                       // next node in the list

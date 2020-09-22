@@ -177,12 +177,12 @@ int CPacket::getLength() const
    return m_PacketVector[1].iov_len;
 }
 
-void CPacket::setLength(int len)
+void CPacket::setLength(const int& len)
 {
    m_PacketVector[1].iov_len = len;
 }
 
-void CPacket::pack(int pkttype, void* lparam, void* rparam, int size)
+void CPacket::pack(const int& pkttype, void* lparam, void* rparam, const int& size)
 {
    // Set (bit-0 = 1) and (bit-1~15 = type)
    m_nHeader[0] = 0x80000000 | (pkttype << 16);
@@ -276,7 +276,6 @@ void CPacket::pack(int pkttype, void* lparam, void* rparam, int size)
       // for extended control packet
       // "lparam" contains the extended type information for bit 16 - 31
       // "rparam" is the control information
-      m_nHeader[0] |= *(int32_t *)lparam;
 
       if (NULL != rparam)
       {
@@ -390,7 +389,7 @@ int CHandShake::serialize(char* buf, int& size)
    return 0;
 }
 
-int CHandShake::deserialize(const char* buf, int size)
+int CHandShake::deserialize(const char* buf, const int& size)
 {
    if (size < m_iContentSize)
       return -1;

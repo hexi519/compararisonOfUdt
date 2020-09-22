@@ -35,12 +35,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*****************************************************************************
 written by
-   Yunhong Gu, last updated 02/28/2012
+   Yunhong Gu, last updated 05/07/2011
 *****************************************************************************/
 
 #ifndef __UDT_CORE_H__
 #define __UDT_CORE_H__
 
+#define MAX_LOSS_RECORD 200
+#define MAX_MONITOR 500
 
 #include "udt.h"
 #include "common.h"
@@ -53,6 +55,24 @@ written by
 #include "ccc.h"
 #include "cache.h"
 #include "queue.h"
+#include <vector>
+#include <deque>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include "time.h"
+
+#include "../pcc/pcc_sender.h"
+#include "packet_tracker.h"
+
+typedef uint64_t PacketId;
+
+struct AsynchCongestionEvent {
+    int64_t time;
+    int64_t rtt_us;
+    AckedPacketVector acks;
+    LostPacketVector lost;
+};
 
 enum UDTSockType {UDT_STREAM = 1, UDT_DGRAM};
 
@@ -68,6 +88,7 @@ friend class CSndQueue;
 friend class CRcvQueue;
 friend class CSndUList;
 friend class CRcvUList;
+friend class PccSender;
 
 private: // constructor and desctructor
    CUDT();
@@ -93,8 +114,8 @@ public: //API
    static int recv(UDTSOCKET u, char* buf, int len, int flags);
    static int sendmsg(UDTSOCKET u, const char* buf, int len, int ttl = -1, bool inorder = false);
    static int recvmsg(UDTSOCKET u, char* buf, int len);
-   static int64_t sendfile(UDTSOCKET u, std::fstream& ifs, int64_t& offset, int64_t size, int block = 364000);
-   static int64_t recvfile(UDTSOCKET u, std::fstream& ofs, int64_t& offset, int64_t size, int block = 7280000);
+   static int64_t sendfile(UDTSOCKET u, std::fstream& ifs, int64_t& offset, const int64_t& size, const int& block = 364000);
+   static int64_t recvfile(UDTSOCKET u, std::fstream& ofs, int64_t& offset, const int64_t& size, const int& block = 7280000);
    static int select(int nfds, ud_set* readfds, ud_set* writefds, ud_set* exceptfds, const timeval* timeout);
    static int selectEx(const std::vector<UDTSOCKET>& fds, std::vector<UDTSOCKET>* readfds, std::vector<UDTSOCKET>* writefds, std::vector<UDTSOCKET>* exceptfds, int64_t msTimeOut);
    static int epoll_create();
@@ -175,7 +196,7 @@ private:
       // Returned value:
       //    Actual size of data sent.
 
-   int send(const char* data, int len);
+   int send(const char* data, const int& len);
 
       // Functionality:
       //    Request UDT to receive data to a memory block "data" with size of "len".
@@ -185,7 +206,7 @@ private:
       // Returned value:
       //    Actual size of data received.
 
-   int recv(char* data, int len);
+   int recv(char* data, const int& len);
 
       // Functionality:
       //    send a message of a memory block "data" with size of "len".
@@ -197,7 +218,7 @@ private:
       // Returned value:
       //    Actual size of data sent.
 
-   int sendmsg(const char* data, int len, int ttl, bool inorder);
+   int sendmsg(const char* data, const int& len, const int& ttl, const bool& inorder);
 
       // Functionality:
       //    Receive a message to buffer "data".
@@ -207,7 +228,7 @@ private:
       // Returned value:
       //    Actual size of data received.
 
-   int recvmsg(char* data, int len);
+   int recvmsg(char* data, const int& len);
 
       // Functionality:
       //    Request UDT to send out a file described as "fd", starting from "offset", with size of "size".
@@ -219,7 +240,7 @@ private:
       // Returned value:
       //    Actual size of data sent.
 
-   int64_t sendfile(std::fstream& ifs, int64_t& offset, int64_t size, int block = 366000);
+   int64_t sendfile(std::fstream& ifs, int64_t& offset, const int64_t& size, const int& block = 366000);
 
       // Functionality:
       //    Request UDT to receive data into a file described as "fd", starting from "offset", with expected size of "size".
@@ -231,7 +252,7 @@ private:
       // Returned value:
       //    Actual size of data received.
 
-   int64_t recvfile(std::fstream& ofs, int64_t& offset, int64_t size, int block = 7320000);
+   int64_t recvfile(std::fstream& ofs, int64_t& offset, const int64_t& size, const int& block = 7320000);
 
       // Functionality:
       //    Configure UDT options.
@@ -242,7 +263,7 @@ private:
       // Returned value:
       //    None.
 
-   void setOpt(UDTOpt optName, const void* optval, int optlen);
+   void setOpt(UDTOpt optName, const void* optval, const int& optlen);
 
       // Functionality:
       //    Read UDT options.
@@ -265,6 +286,55 @@ private:
 
    void sample(CPerfMon* perf, bool clear = true);
 
+   // start monitor function
+   // length: the length of the monitoration
+   void start_monitor(int length);
+
+   // end monitor function
+   // utility: whether should we call utility function
+   void end_monitor(bool call_utility);
+
+   // check this loss happened in which monitor
+   void monitor_loss(int loss);
+
+   // check whether this ack/loss feedback end one monitor
+   void check_monitor_end_ack(int ack);
+   void check_monitor_end_loss(int loss);
+
+   // add the seqNo into retransmission list which is used to
+   // judge in which monitor the lost pkt has been sent
+   void add_retransmission(int seqNo, int monitor);
+
+   void reduce_retransmission_list(int ack);
+
+   void resizeMSS(int mss);
+
+
+private: // monitor
+   int current_monitor, previous_monitor, monitor_ttl;
+//   int start_seq[MAX_MONITOR], start_retransmission[MAX_MONITOR], end_seq[MAX_MONITOR], end_retransmission[MAX_MONITOR];
+   double start_time[MAX_MONITOR], end_time[MAX_MONITOR], end_transmission_time[MAX_MONITOR];
+   // for state, 1=sending, 2= waiting, 3=finished
+   int lost[MAX_MONITOR], retransmission[MAX_MONITOR], total[MAX_MONITOR], new_transmission[MAX_MONITOR], left[MAX_MONITOR], state[MAX_MONITOR], left_monitor;//, end_pkt[MAX_MONITOR];
+   int32_t pkt_sending[MAX_MONITOR][8000];
+   int32_t latency[MAX_MONITOR];
+   vector<int32_t> loss_record1, loss_record2;
+   vector<int32_t>::iterator itr_loss_record1, itr_loss_record2;
+   int32_t latency_seq_start[MAX_MONITOR], latency_seq_end[MAX_MONITOR];
+   int32_t latency_time_start[MAX_MONITOR], latency_time_end[MAX_MONITOR];
+   int32_t time_interval[MAX_MONITOR];
+   int lossptr;
+   bool recv_ack[MAX_MONITOR][30000];
+   int64_t latest_received_seq[MAX_MONITOR];
+   uint64_t packet_space[MAX_MONITOR];
+   uint64_t send_timestamp[MAX_MONITOR][30000];
+   uint64_t rtt_trace[MAX_MONITOR][30000];
+   int rtt_count[MAX_MONITOR];
+   uint64_t rtt_value[MAX_MONITOR];
+   bool monitor;
+   int test;
+//   int retransmission_list[60000], max_retransmission_list, min_retransmission_list_seqNo;
+
 private:
    static CUDTUnited s_UDTUnited;               // UDT global management base
 
@@ -281,6 +351,7 @@ private: // Identification
 private: // Packet sizes
    int m_iPktSize;                              // Maximum/regular packet size, in bytes
    int m_iPayloadSize;                          // Maximum/regular payload size, in bytes
+   int m_iRcvPayloadSize;                          // Maximum/regular payload size, in bytes
 
 private: // Options
    int m_iMSS;                                  // Maximum Segment Size, in bytes
@@ -302,6 +373,8 @@ private: // Options
 private: // congestion control
    CCCVirtualFactory* m_pCCFactory;             // Factory class to create a specific CC instance
    CCC* m_pCC;                                  // congestion control class
+   PccSender* pcc_sender;
+   PacketTracker<int32_t, PacketId>* packet_tracker_;
    CCache<CInfoBlock>* m_pCache;		// network information cache
 
 private: // Status
@@ -317,8 +390,13 @@ private: // Status
 
    int m_iEXPCount;                             // Expiration counter
    int m_iBandwidth;                            // Estimated bandwidth, number of packets per second
-   int m_iRTT;                                  // RTT, in microseconds
-   int m_iRTTVar;                               // RTT variance
+   double m_iRTT;                                  // RTT, in microseconds
+   int last_rtt_;
+   deque<double> m_last_rtt;
+   static const size_t kRTTHistorySize = 100;
+   //double m_last_rtt[MAX_MONITOR];
+   int m_monitor_count;
+   double m_iRTTVar;                               // RTT variance
    int m_iDeliveryRate;				// Packet arrival rate at the receiver side
 
    uint64_t m_ullLingerExpiration;		// Linger expiration time (for GC to close a socket with data in sending buffer)
@@ -332,8 +410,7 @@ private: // Sending related data
    CSndLossList* m_pSndLossList;                // Sender loss list
    CPktTimeWindow* m_pSndTimeWindow;            // Packet sending time window
 
-   volatile uint64_t m_ullInterval;             // Inter-packet time, in CPU clock cycles
-   uint64_t m_ullTimeDiff;                      // aggregate difference in inter-packet time
+   int64_t m_ullTimeDiff;                      // aggregate difference in inter-packet time
 
    volatile int m_iFlowWindowSize;              // Flow control window size
    volatile double m_dCongestionWindow;         // congestion window size
@@ -341,13 +418,12 @@ private: // Sending related data
    volatile int32_t m_iSndLastAck;              // Last ACK received
    volatile int32_t m_iSndLastDataAck;          // The real last ACK that updates the sender buffer and loss list
    volatile int32_t m_iSndCurrSeqNo;            // The largest sequence number that has been sent
+   volatile int32_t m_iMonitorCurrSeqNo;
    int32_t m_iLastDecSeq;                       // Sequence number sent last decrease occurs
    int32_t m_iSndLastAck2;                      // Last ACK2 sent back
    uint64_t m_ullSndLastAck2Time;               // The time when last ACK2 was sent back
 
    int32_t m_iISN;                              // Initial Sequence Number
-
-   void CCUpdate();
 
 private: // Receiving related data
    CRcvBuffer* m_pRcvBuffer;                    // Receiver buffer
@@ -362,7 +438,7 @@ private: // Receiving related data
    int32_t m_iRcvCurrSeqNo;                     // Largest received sequence number
 
    uint64_t m_ullLastWarningTime;               // Last time that a warning message is sent
-
+   int32_t tsn_payload[1];
    int32_t m_iPeerISN;                          // Initial Sequence Number of the peer side
 
 private: // synchronization: mutexes and conditions
@@ -379,20 +455,35 @@ private: // synchronization: mutexes and conditions
    pthread_mutex_t m_SendLock;                  // used to synchronize "send" call
    pthread_mutex_t m_RecvLock;                  // used to synchronize "recv" call
 
+   pthread_mutex_t m_LossrecordLock;
+   mutex monitor_mutex_;
+
    void initSynch();
    void destroySynch();
    void releaseSynch();
+   double get_min_rtt() const;
 
 private: // Generation and processing of packets
-   void sendCtrl(int pkttype, void* lparam = NULL, void* rparam = NULL, int size = 0);
+   void SendAck(int32_t seq_no, int32_t msg_no);
+   void sendCtrl(const int& pkttype, void* lparam = NULL, void* rparam = NULL, const int& size = 0);
+   void ProcessAck(CPacket& ctrlpkt);
    void processCtrl(CPacket& ctrlpkt);
+   uint64_t GetSendingInterval();
    int packData(CPacket& packet, uint64_t& ts);
    int processData(CUnit* unit);
    int listen(sockaddr* addr, CPacket& packet);
+   void add_to_loss_record(int32_t loss1, int32_t loss2);
+   uint64_t deadlines[MAX_MONITOR];
+   uint64_t allocated_times_[MAX_MONITOR];
+   int32_t GetNextSeqNo();
 
+   int loss_head_loc;
+
+   static const uint64_t kMinTimeoutMillis = 50000;
 private: // Trace
    uint64_t m_StartTime;                        // timestamp when the UDT entity is started
    int64_t m_llSentTotal;                       // total number of sent data packets, including retransmissions
+   int64_t TotalBytes;
    int64_t m_llRecvTotal;                       // total number of received packets
    int m_iSndLossTotal;                         // total number of lost packets (sender side)
    int m_iRcvLossTotal;                         // total number of lost packets (receiver side)
@@ -436,7 +527,7 @@ private: // Timers
    int m_iPktCount;				// packet counter for ACK
    int m_iLightACKCount;			// light ACK counter
 
-   uint64_t m_ullTargetTime;			// scheduled time of next packet sending
+   int64_t m_ullTargetTime;			// scheduled time of next packet sending
 
    void checkTimers();
 
@@ -448,10 +539,24 @@ private: // for UDP multiplexer
    CSNode* m_pSNode;				// node information for UDT list used in snd queue
    CRNode* m_pRNode;                            // node information for UDT list used in rcv queue
 
+   void init_state();
+   time_t start_;
+
 private: // for epoll
    std::set<int> m_sPollID;                     // set of epoll ID to trigger
    void addEPoll(const int eid);
    void removeEPoll(const int eid);
+
+private: // for asynchronous congestion event handling.
+    static void CongestionEventHandler(CUDT* self);
+    void OnCongestionEvent(int64_t event_time,
+                           int64_t rtt_us,
+                           AckedPacketVector& acked_packets,
+                           LostPacketVector& lost_packets);
+    std::mutex congestion_event_lock;
+    std::queue<AsynchCongestionEvent*> congestion_event_queue;
+    std::condition_variable congestion_event_cv;
+    std::thread* congestion_event_thread;
 };
 
 
