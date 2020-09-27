@@ -25,6 +25,7 @@
 #endif
 
 #ifndef QUIC_PORT
+//设置拥塞相关事件发生时要记录的状态：当前时间戳、acked的包、丢的包、包的数量(发包？？)
 typedef struct CongestionEvent {
     int32_t packet_number;
     int32_t bytes_acked;
@@ -32,6 +33,7 @@ typedef struct CongestionEvent {
     uint64_t time;
 } CongestionEvent;
 
+// 每次丢包或者收到包的时候都记录下当前的包的收发情况
 typedef CongestionEvent AckedPacket;
 typedef CongestionEvent LostPacket;
 typedef std::vector<CongestionEvent> AckedPacketVector;
@@ -55,7 +57,7 @@ using namespace net;
 // 'useful' intervals' utilities are available.
 class PccMonitorIntervalQueue {
  public:
-  explicit PccMonitorIntervalQueue();
+  explicit PccMonitorIntervalQueue();       
   PccMonitorIntervalQueue(const PccMonitorIntervalQueue&) = delete;
   PccMonitorIntervalQueue& operator=(const PccMonitorIntervalQueue&) = delete;
   PccMonitorIntervalQueue(PccMonitorIntervalQueue&&) = delete;

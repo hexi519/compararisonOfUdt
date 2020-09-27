@@ -22,17 +22,18 @@ float PccLinearUtilityCalculator::CalculateUtility(PccMonitorIntervalAnalysisGro
       avg_rtt = last_rtt;
   }
 
-  float thpt_pkt_per_sec = throughput / (8.0 * 1500);
-  float rtt_sec = avg_rtt / 1000000.0;
+  float thpt_pkt_per_sec = throughput / (8.0 * 1500);   // 单位换了 pps
+  float rtt_sec = avg_rtt / 1000000.0;           // 单位换了 bps
 
-  float utility = pow(throughput, 0.9) - 1000 * avg_rtt - 11.35 * throughput * loss_rate;
+  float utility = pow(throughput, 0.9) - 1000 * avg_rtt - 11.35 * throughput * loss_rate;   //感觉这是Vivace的utility
   utility = throughput - 1000 * avg_rtt - 1e8 * loss_rate;
-  utility = 10.0 * thpt_pkt_per_sec - 1000.0 * rtt_sec - 2000.0 * loss_rate;
+  utility = 10.0 * thpt_pkt_per_sec - 1000.0 * rtt_sec - 2000.0 * loss_rate;    //这是最新的
 
   //std::cout << "LINEAR CALC! Rtt: " << rtt_sec << std::endl;
 
   //utility = -1 * abs(cur_mi.GetObsSendingRate() - 1e7);
 
+    // TODO 有空可以看下这个log
   PccLoggableEvent event("Calculate Utility", "--log-utility-calc-lite");
   event.AddValue("Utility", utility);
   event.AddValue("MI Start Time", cur_mi.GetStartTime());

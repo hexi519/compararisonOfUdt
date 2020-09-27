@@ -11,7 +11,7 @@ void PccPythonRateController::InitializePython() {
 
     std::stringstream set_argv_ss;
     set_argv_ss << "sys.argv = [";
-    wchar_t** unicode_args = new wchar_t*[Options::argc];
+    wchar_t** unicode_args = new wchar_t*[Options::argc];  // wchar_t宽字符
     for (int i = 0; i < Options::argc; ++i) {
         const char* arg = Options::argv[i];
         if (i == 0) {
@@ -38,6 +38,7 @@ int PccPythonRateController::GetNextId() {
     return id;
 }
 
+// 调用python端的代码
 PccPythonRateController::PccPythonRateController(double call_freq,
         PccEventLogger* log) {
 
@@ -65,6 +66,7 @@ PccPythonRateController::PccPythonRateController(double call_freq,
         python_filename = python_filename_arg;
     }
     
+    // import pyhelper as a module
     module = PyImport_ImportModule(python_filename);
     if (module == NULL) {
         std::cerr << "ERROR: Could not load python module: " << python_filename << std::endl;
@@ -79,9 +81,10 @@ PccPythonRateController::PccPythonRateController(double call_freq,
         exit(-1);
     }
     PyObject* id_obj = PyLong_FromLong(id);
-    static PyObject* args = PyTuple_New(1);
+    static PyObject* args = PyTuple_New(1);     // 只有1个参数的元组...?
     PyTuple_SetItem(args, 0, id_obj);
     
+    // python pcc_rate_control id
     PyObject* init_result = PyObject_CallObject(init_func, args);
     PyErr_Print();
     
@@ -107,6 +110,7 @@ PccPythonRateController::PccPythonRateController(double call_freq,
     }
 }
 
+// 调用python端的reset函数并获取返回结果（void)
 void PccPythonRateController::Reset() {
     std::cout << "Starting Reset" << std::endl;
     std::lock_guard<std::mutex> lock(interpreter_lock_);
@@ -118,6 +122,7 @@ void PccPythonRateController::Reset() {
     PyErr_Print();
 }
 
+// 传递observation给python然后获取sample信息(?
 void PccPythonRateController::GiveSample(int bytes_sent,
                                          int bytes_acked,
                                          int bytes_lost,
@@ -131,7 +136,7 @@ void PccPythonRateController::GiveSample(int bytes_sent,
                                          double utility) {
 
     std::lock_guard<std::mutex> lock(interpreter_lock_);
-    static PyObject* args = PyTuple_New(11);
+    static PyObject* args = PyTuple_New(11);    //* 传过去11个参数
     
     // flow_id
     PyTuple_SetItem(args, 0, PyLong_FromLong(id));
@@ -173,6 +178,7 @@ void PccPythonRateController::GiveSample(int bytes_sent,
 
 }
 
+// TODO 没有很懂逻辑: MI结束了的话，就调用GiveSample --》 应该是把这个数据存储到buffer里面去
 void PccPythonRateController::MonitorIntervalFinished(const MonitorInterval& mi) {
     if (!has_time_offset) {
         time_offset_usec = mi.GetSendStartTime();
@@ -193,6 +199,7 @@ void PccPythonRateController::MonitorIntervalFinished(const MonitorInterval& mi)
     );
 }
 
+// 调用python的get_rate函数
 QuicBandwidth PccPythonRateController::GetNextSendingRate(QuicBandwidth current_rate, QuicTime cur_time) {
 
     std::lock_guard<std::mutex> lock(interpreter_lock_);

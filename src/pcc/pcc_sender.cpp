@@ -44,15 +44,17 @@ const QuicBandwidth kMinSendingRate = QuicBandwidth::FromKBitsPerSecond(2000);
 const QuicBandwidth kMinimumRateChange = QuicBandwidth::FromBitsPerSecond(
     static_cast<int64_t>(0.5f * kMegabit));
 #else
+// us与s之间的转换率
 const float kNumMicrosPerSecond = 1000000.0f;
 // Default TCPMSS used in UDT only.
 const size_t kDefaultTCPMSS = 1400;
-// An inital RTT value to use (10ms)
+// An inital RTT value to use (10ms)  //? 10ms不应该是 10,000么..
 const size_t kInitialRttMicroseconds = 1 * 1000;
 #endif
 // Number of bits per byte.
 const size_t kBitsPerByte = 8;
 // Duration of monitor intervals as a proportion of RTT.
+//* 之前设置的值是1.5个RTT，现在改成0.5个了...似乎是for training
 const float kMonitorIntervalDuration = 0.5f;
 // Minimum number of packets in a monitor interval.
 const size_t kMinimumPacketsPerInterval = 5;
@@ -70,14 +72,15 @@ QuicTime::Delta PccSender::ComputeMonitorDuration(
                        sending_rate.ToBitsPerSecond())));
 }
 #else
+// 有一个最小的MI时间保障，同时还要保障上一个MI时段的包全部发完
 QuicTime PccSender::ComputeMonitorDuration(
-    QuicBandwidth sending_rate, 
-    QuicTime rtt) {
-  
+    QuicBandwidth sending_rate,    // actually just double
+    QuicTime rtt) {     // int64_t 
   return
       std::max(kMonitorIntervalDuration * rtt, 
                kNumMicrosPerSecond * kMinimumPacketsPerInterval * kBitsPerByte * 
-                   kDefaultTCPMSS / (float)sending_rate);
+                   kDefaultTCPMSS / (float)sending_rate);   
+                   // 发包个数*包间隔时间*包最小的字节数大小*字节和比特的转换率大小
 }
 #endif
 
@@ -88,7 +91,7 @@ PccSender::PccSender(const RttStats* rtt_stats,
                      QuicRandom* random)
 #else
 PccSender::PccSender(QuicTime initial_rtt_us,
-                     QuicPacketCount initial_congestion_window,
+                     QuicPacketCount initial_congestion_window, this    // int32_t
                      UDT_UNUSED QuicPacketCount max_congestion_window)
 #endif
     :
@@ -101,7 +104,7 @@ PccSender::PccSender(QuicTime initial_rtt_us,
           initial_congestion_window * kDefaultTCPMSS * kBitsPerByte *
           kNumMicrosPerSecond / initial_rtt_us),
 #endif
-      interval_analysis_group_(3),
+      interval_analysis_group_(3),  //TODO 怎么size是3...不应该是3么...
       #ifndef QUIC_PORT
       avg_rtt_(0)
       #endif
@@ -109,6 +112,7 @@ PccSender::PccSender(QuicTime initial_rtt_us,
 
   std::cout << "Starting sending rate = " << sending_rate_ << std::endl;
   #ifndef QUIC_PORT
+  // TODO log的用法
   if (Options::Get("-log=") == NULL) {
     log = new PccEventLogger("pcc_log.txt");
   } else {
@@ -126,7 +130,7 @@ PccSender::PccSender(QuicTime initial_rtt_us,
 
   // We'll tell the rate controller how many times per RTT it is called so it can run aglorithms
   // like doubling every RTT fairly easily.
-  double call_freq = 1.0 / kMonitorIntervalDuration;
+  double call_freq = 1.0 / kMonitorIntervalDuration;    // 每个Mi, rate controller都会被call一次
 
   // CLARG: "--pcc-rate-control=<rate_controller>" See src/pcc/rate_controler for more info.
   const char* rc_name = Options::Get("--pcc-rate-control=");
@@ -160,11 +164,13 @@ void PccSender::Reset() {
 }
 #endif
 
+// 如果MI_queue空了，或者最新的MI的包全部发完了，就得创建一个新的了
 bool PccSender::ShouldCreateNewMonitorInterval(QuicTime sent_time) {
     return interval_queue_.Empty() ||
-        interval_queue_.Current().AllPacketsSent(sent_time);
+        interval_queue_.Current().AllPacketsSent(sent_time);    
 }
 
+// 更新rtt onCongestionEvent(Ack
 void PccSender::UpdateCurrentRttEstimate(QuicTime rtt) {
     #ifdef QUIC_PORT
     return;
@@ -173,6 +179,7 @@ void PccSender::UpdateCurrentRttEstimate(QuicTime rtt) {
     #endif
 }
 
+//done
 QuicTime PccSender::GetCurrentRttEstimate(QuicTime sent_time) {
     #ifdef QUIC_PORT
     return rtt_stats_->smoothed_rtt();
@@ -181,20 +188,23 @@ QuicTime PccSender::GetCurrentRttEstimate(QuicTime sent_time) {
     #endif
 }
 
+//done
 QuicBandwidth PccSender::UpdateSendingRate(QuicTime event_time) {
-    rate_control_lock_->lock();
-  sending_rate_ = rate_controller_->GetNextSendingRate(sending_rate_, event_time);
+    rate_control_lock_->lock(); 
+    sending_rate_ = rate_controller_->GetNextSendingRate(sending_rate_, event_time);  // 调用python端的，needs reading
     rate_control_lock_->unlock();
-  //std::cout << "PCC: rate = " << sending_rate_ << std::endl;
-  return sending_rate_;
+    //std::cout << "PCC: rate = " << sending_rate_ << std::endl;
+    return sending_rate_;
 }
 
+//sent_time 就是当前的时间
 void PccSender::OnPacketSent(QuicTime sent_time,
                              UDT_UNUSED QuicByteCount bytes_in_flight,
                              QuicPacketNumber packet_number,
                              QuicByteCount bytes,
                              UDT_UNUSED HasRetransmittableData is_retransmittable) {
 
+  // 现在要发包了，如果不在MI范围内，就创建一个MI
   if (ShouldCreateNewMonitorInterval(sent_time)) {
     // Set the monitor duration to 1.5 of smoothed rtt.
     QuicTime rtt_estimate = GetCurrentRttEstimate(sent_time);
@@ -216,6 +226,11 @@ void PccSender::OnPacketSent(QuicTime sent_time,
   interval_queue_.OnPacketSent(sent_time, packet_number, bytes);
 }
 
+/*收到一个ack
+    1. 更新下rtt_esti(其实就是当前测的值，但是毕竟是测出来的，所以是esti)
+    2. 触发MI结构的OnCongestionEvent用于记录消息
+    3. 如果一个MI结束了，就计算下其utility，作为一个采样传递给python端，并pop出来
+*/
 void PccSender::OnCongestionEvent(UDT_UNUSED bool rtt_updated,
                                   UDT_UNUSED QuicByteCount bytes_in_flight,
                                   QuicTime event_time,
@@ -237,10 +252,11 @@ void PccSender::OnCongestionEvent(UDT_UNUSED bool rtt_updated,
                                     event_time);
   while (interval_queue_.HasFinishedInterval(event_time)) {
     MonitorInterval mi = interval_queue_.Pop();
-    //std::cerr << "MI Finished with: " << mi.n_packets_sent << ", loss " << mi.GetObsLossRate() << std::endl;
+    // hesy uncomment this line 
+    std::cerr << "MI Finished with: " << mi.n_packets_sent << ", loss " << mi.GetObsLossRate() << std::endl;
     mi.SetUtility(utility_calculator_->CalculateUtility(interval_analysis_group_, mi));
     rate_control_lock_->lock();
-    rate_controller_->MonitorIntervalFinished(mi);
+    rate_controller_->MonitorIntervalFinished(mi);  //MI结束了的话就调用MonitorIntervalFinished以调用get_sample 
     rate_control_lock_->unlock();
   }
 }
@@ -251,6 +267,7 @@ bool PccSender::CanSend(QuicByteCount bytes_in_flight) {
 }
 #endif
 
+// 要么保持原样，要么就用下一个MI的目标速度去设定
 QuicBandwidth PccSender::PacingRate(UDT_UNUSED QuicByteCount bytes_in_flight) const {
   QuicBandwidth result = interval_queue_.Empty() ? sending_rate_
                                  : interval_queue_.Current().GetTargetSendingRate();

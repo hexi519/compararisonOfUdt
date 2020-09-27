@@ -23,9 +23,9 @@
 
 #ifndef QUIC_PORT
 typedef int32_t QuicPacketCount;
-typedef int32_t QuicPacketNumber;
+typedef int32_t QuicPacketNumber;   // 不理解为什么要分开+1
 typedef int64_t QuicByteCount;
-typedef int64_t QuicTime;
+typedef int64_t QuicTime;   //TODO 不能理解为什么不是double，反而是int  --》 好像懂了，应该是us，clock time
 typedef double  QuicBandwidth;
 #endif
 
@@ -43,6 +43,7 @@ using namespace net;
 #endif
 
 // PacketRttSample, stores the packet number and its corresponding RTT
+// hesy: 记录收到的包的序列号以及RTT事件，which用于后面
 struct PacketRttSample {
   PacketRttSample();
   #ifdef QUIC_PORT
@@ -58,7 +59,7 @@ struct PacketRttSample {
   #ifdef QUIC_PORT
   QuicTime::Delta rtt;
   #else
-  QuicTime rtt;
+  QuicTime rtt; 
   #endif
 };
 

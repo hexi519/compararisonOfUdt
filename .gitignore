@@ -17,3 +17,4 @@ sim/sim_test
 *.index
 *.meta
 *.data-*
+**/.vscode

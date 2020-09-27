@@ -57,7 +57,7 @@ class PccSenderPeer;
 // evaluates the benefits of different sending rates by comparing their
 // utilities, and adjusts the sending rate towards the direction of
 // higher utility.
-class QUIC_EXPORT_PRIVATE PccSender
+class QUIC_EXPORT_PRIVATE PccSender     // TODO 回头再看看这个有啥意思吧
 #ifdef QUIC_PORT
     : public SendAlgorithmInterface {
 #else
@@ -74,9 +74,9 @@ class QUIC_EXPORT_PRIVATE PccSender
             QuicPacketCount initial_congestion_window,
             QuicPacketCount max_congestion_window);
   #endif
-  PccSender(const PccSender&) = delete;
+  PccSender(const PccSender&) = delete;  // hesy:这里禁止了所有的复制构造,作用就是防止子类继承的时候自定义这些操作，以及编译器默认帮忙做的（这里这个例子不是很好，最好的应该是禁止类型转换）
   PccSender& operator=(const PccSender&) = delete;
-  PccSender(PccSender&&) = delete;
+  PccSender(PccSender&&) = delete;  //hesy: 二级指针
   PccSender& operator=(PccSender&&) = delete;
   #ifdef QUIC_PORT_LOCAL
   ~PccSender() override;
