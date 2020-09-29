@@ -1,5 +1,5 @@
-DIRS = src app
 TARGETS = all clean install
+DIRS = src app
 
 $(TARGETS): %: $(patsubst %, %.%, $(DIRS))
 

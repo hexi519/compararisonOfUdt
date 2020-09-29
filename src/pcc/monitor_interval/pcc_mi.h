@@ -118,7 +118,11 @@ struct MonitorInterval {
   int GetAveragePacketSize() const { return bytes_sent / n_packets_sent; }
   double GetUtility() const { return utility; }
 
- private:
+    //* hesy makes it out for correctness
+  // The number of packets in this monitor interval.
+  int n_packets_sent;
+
+     private:
   static int next_id;
 
   bool ContainsPacket(QuicPacketNumber packet_num);
@@ -157,9 +161,6 @@ struct MonitorInterval {
   // Utility value of this MonitorInterval, which is calculated
   // when all sent packets are accounted for.
   float utility;
-
-  // The number of packets in this monitor interval.
-  int n_packets_sent;
 
   // The number of packets whose return status is known.
   int n_packets_accounted_for;
