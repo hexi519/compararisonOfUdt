@@ -14,7 +14,7 @@ LIB_SOURCES += $(wildcard pcc/utility/*.cpp)
 LIB_SOURCES += $(wildcard pcc/*.cpp)
 LIB_OBJECTS = $(LIB_SOURCES:.cpp=.o)
 
-all:v
+all:
 	$(MAKE) -C pcc/monitor_interval all
 	$(MAKE) -C pcc/rate_control all
 	$(MAKE) -C pcc/utility all
